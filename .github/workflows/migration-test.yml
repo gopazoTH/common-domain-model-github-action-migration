@@ -63,6 +63,14 @@ jobs:
     runs-on: ubuntu-latest # Not resolved - Maven image required
 
     steps:
+
+      - name: Import GPG private key
+        if: startsWith(github.event.ref, 'refs/tags/')
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --import
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          
       - name: Build Release CI
         if: startsWith(github.event.ref, 'refs/tags/**')
         uses: ./.github/actions/maven-build-migration
@@ -76,7 +84,7 @@ jobs:
         env:
           GPG_KEYNAME: ${{ secrets.GPG_KEYNAME }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          CI_DEPLOY_USERNAME: ${{ vars.CI_DEPLOY_USERNAME }}
+          CI_DEPLOY_USERNAME: ${{ secrets.CI_DEPLOY_USERNAME }}
           CI_DEPLOY_PASSWORD: ${{ secrets.CI_DEPLOY_PASSWORD }}
 
       - name: Build Snapshot CI
@@ -92,7 +100,7 @@ jobs:
         env:
           GPG_KEYNAME: ${{ secrets.GPG_KEYNAME }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          CI_DEPLOY_USERNAME: ${{ vars.CI_DEPLOY_USERNAME }}
+          CI_DEPLOY_USERNAME: ${{ secrets.CI_DEPLOY_USERNAME }}
           CI_DEPLOY_PASSWORD: ${{ secrets.CI_DEPLOY_PASSWORD }}
   
   distribute:
