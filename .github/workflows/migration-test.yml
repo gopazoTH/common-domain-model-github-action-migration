@@ -1,12 +1,10 @@
 name: Java CI with Maven
 
 on:
-  push: #triggers when a tag push event is cached in master branch
-    branches:
-      - 'master'
+  push: #triggers on tag push event
     tags:
       - '**'
-  pull_request: #triggers when a PR is merged into develop branch
+  pull_request: #triggers on PR merge event into develop branch
     types:
       - closed
     branches: 
@@ -17,10 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     env:  # environment variables used across the setup job
       MVN_BUILD_FLAGS: "-Dmaven.repo.local=$GITHUB_WORKSPACE/.m2"
+      MVN_DEPLOY_FLAGS: "-s $GITHUB_WORKSPACE/settings.xml"
       GEN_DEPLOY_POM_SCRIPT: "$GITHUB_WORKSPACE/rosetta-source/src/main/resources/build-resources/create-deploy-pom.sh"
       GEN_DEPLOY_POM_PY: "$GITHUB_WORKSPACE/rosetta-source/src/main/resources/build-resources/create-deploy-pom.py"
     outputs:
       MVN_BUILD_FLAGS: ${{env.MVN_BUILD_FLAGS}}
+      MVN_DEPLOY_FLAGS: ${{env.MVN_DEPLOY_FLAGS}}
       RELEASE_NAME: ${{steps.release_props.outputs.RELEASE_NAME}}
       RELEASE_MAVEN_BUILD_PROFILES: ${{steps.release_props.outputs.MAVEN_BUILD_PROFILES}}
       RELEASE_MVN_DEPLOY_FILE_FLAGS: ${{steps.release_props.outputs.MVN_DEPLOY_FILE_FLAGS}}
@@ -30,10 +30,7 @@ jobs:
  
     steps:
       - name: main_clone
-        uses: actions/checkout@v2
-
-      - name: Set GPG Passphrase
-        run: echo "GPG_PASSPHRASE=${{ secrets.GPG_PASSPHRASE }}" >> $GITHUB_OUTPUT
+        uses: actions/checkout@v4
 
       - name: ReleaseProperties
         id: release_props
@@ -44,9 +41,9 @@ jobs:
           echo "RELEASE_MAVEN_BUILD_PROFILES=${{env.MAVEN_BUILD_PROFILES}}" >> "$GITHUB_OUTPUT"
           echo "RELEASE_MVN_DEPLOY_FILE_FLAGS=${{env.MVN_DEPLOY_FILE_FLAGS}}" >> "$GITHUB_OUTPUT"
         env:
-          RELEASE_NAME: "${{github.event.release.tag_name}}" # not resoled hot to define release name (e.g. $github.tag)
+          RELEASE_NAME: "${{github.event.release.tag_name}}"
           MAVEN_BUILD_PROFILES: "daml,scala,typescript,golang,csharp8,csharp9,kotlin,python,full,gpg,excel"
-          MVN_DEPLOY_FILE_FLAGS: "${{env.MVN_BUILD_FLAGS}} ${{env.MVN_DEPLOY_FLAGS}} -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2 -DrepositoryId=ossrh-distro -Dgpg.passphrase=${{secrets.GPG_PASSPHRASE}}"
+          MVN_DEPLOY_FILE_FLAGS: "${{env.MVN_BUILD_FLAGS}} ${{env.MVN_DEPLOY_FLAGS}} -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2 -DrepositoryId=ossrh-distro"
           
       - name: SnapshotProperties
         id: snapshot_props
@@ -59,52 +56,45 @@ jobs:
         env:
           RELEASE_NAME: "${{github.ref_name}}-SNAPSHOT" # not resolved how to define snapshot name
           MAVEN_BUILD_PROFILES: "daml,scala,typescript,golang,csharp8,csharp9,kotlin,python,gpg,excel"
-          MVN_DEPLOY_FILE_FLAGS: "${{env.MVN_BUILD_FLAGS}} ${{env.MVN_DEPLOY_FLAGS}} -Durl=https://oss.sonatype.org/content/repositories/snapshots -DrepositoryId=ossrh -Dgpg.passphrase=${{secrets.GPG_PASSPHRASE}}"
+          MVN_DEPLOY_FILE_FLAGS: "${{env.MVN_BUILD_FLAGS}} ${{env.MVN_DEPLOY_FLAGS}} -Durl=https://oss.sonatype.org/content/repositories/snapshots -DrepositoryId=ossrh"
 
   build:
     needs: setup
     runs-on: ubuntu-latest # Not resolved - Maven image required
 
     steps:
-
-      - name: Import GPG private key
-        if: startsWith(github.event.ref, 'refs/tags/')
-        run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --import
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          
+      - uses: actions/checkout@v4
       - name: Build Release CI
         if: startsWith(github.event.ref, 'refs/tags/**')
-        uses: ./.github/actions/maven-build-migration
+        uses: ./.github/actions/build-migration
         with:
-          build-command: deploy
+          build-command: install
           release-name: ${{needs.setup.outputs.RELEASE_NAME}}
           build-flags: ${{needs.setup.outputs.MVN_BUILD_FLAGS}}
-          #deploy-flags: ${{needs.setup.outputs.MVN_DEPLOY_FLAGS}}
           build-profiles: ${{needs.setup.outputs.RELEASE_MVN_DEPLOY_FILE_FLAGS}}
-          maven-settings: $GITHUB_WORKSPACE/settings.xml
+          #maven-settings: $GITHUB_WORKSPACE
         env:
-          GPG_KEYNAME: ${{ secrets.GPG_KEYNAME }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          CI_DEPLOY_USERNAME: ${{ secrets.CI_DEPLOY_USERNAME }}
-          CI_DEPLOY_PASSWORD: ${{ secrets.CI_DEPLOY_PASSWORD }}
+          GPG_KEYNAME: ${{secrets.GPG_KEYNAME}}
+          GPG_PRIVATE_KEY: ${{secrets.GPG_PRIVATE_KEY}}
+          GPG_PASSPHRASE: ${{secrets.GPG_PASSPHRASE}}
+          CI_DEPLOY_USERNAME: ${{secrets.CI_DEPLOY_USERNAME}}
+          CI_DEPLOY_PASSWORD: ${{secrets.CI_DEPLOY_PASSWORD}}
 
       - name: Build Snapshot CI
         if: github.ref == 'refs/heads/develop'
-        uses: ./.github/actions/maven-build-migration
+        uses: ./.github/actions/build-migration
         with:
           build-command: verify
           release-name: ${{needs.setup.outputs.SNAPSHOT_NAME}}
           build-flags: ${{needs.setup.outputs.MVN_BUILD_FLAGS}}
-          #deploy-flags: ${{needs.setup.outputs.MVN_DEPLOY_FLAGS}}
           build-profiles: ${{needs.setup.outputs.SNAPSHOT_MVN_DEPLOY_FILE_FLAGS}}
-          maven-settings: $GITHUB_WORKSPACE/settings.xml
+          #maven-settings: $GITHUB_WORKSPACE
         env:
-          GPG_KEYNAME: ${{ secrets.GPG_KEYNAME }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          CI_DEPLOY_USERNAME: ${{ secrets.CI_DEPLOY_USERNAME }}
-          CI_DEPLOY_PASSWORD: ${{ secrets.CI_DEPLOY_PASSWORD }}
+          GPG_KEYNAME: ${{secrets.GPG_KEYNAME}}
+          GPG_PRIVATE_KEY: ${{secrets.GPG_PRIVATE_KEY}}
+          GPG_PASSPHRASE: ${{secrets.GPG_PASSPHRASE}}
+          CI_DEPLOY_USERNAME: ${{secrets.CI_DEPLOY_USERNAME}}
+          CI_DEPLOY_PASSWORD: ${{secrets.CI_DEPLOY_PASSWORD}}
   
   distribute:
     needs: build
